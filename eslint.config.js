@@ -25,6 +25,9 @@ export default tseslint.config(
       "react-refresh/only-export-components": "warn",
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-non-null-assertion": "error",
+      // Interpolating a number into an id / data-testid / SVG coordinate is
+      // legitimate and safe; allow it rather than String()-wrapping everywhere.
+      "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }],
     },
   },
   {
