@@ -45,6 +45,41 @@ export const RECT_TOOLS: ReadonlyArray<ToolId> = [
   "link",
 ];
 
+/** Tools placed by a single click (ghost-follows-cursor). Strokes stay drag. */
+export const PLACEMENT_TOOLS: ReadonlyArray<ToolId> = [
+  "text",
+  "rect",
+  "ellipse",
+  "highlight",
+  "underline",
+  "strike",
+  "whiteout",
+  "link",
+  "image",
+  "signature",
+];
+
+/** Default footprint (view points) of a placement tool, before resizing. */
+export function defaultBoxSize(tool: ToolId, s: Style): { w: number; h: number } {
+  switch (tool) {
+    case "text":
+      return { w: 220, h: Math.round(s.fontSize * 1.6) };
+    case "ellipse":
+      return { w: 130, h: 96 };
+    case "highlight":
+      return { w: 190, h: 20 };
+    case "underline":
+    case "strike":
+      return { w: 170, h: 16 };
+    case "whiteout":
+      return { w: 150, h: 30 };
+    case "link":
+      return { w: 160, h: 28 };
+    default:
+      return { w: 150, h: 96 };
+  }
+}
+
 export type Style = {
   color: Rgb; // text + line + shape stroke
   fill: Rgb | null;
@@ -71,19 +106,14 @@ export function uid(): string {
   return crypto.randomUUID();
 }
 
-export function createTextAnnotation(
-  page: number,
-  x: number,
-  y: number,
-  s: Style,
-): TextAnnot {
+export function createTextAnnotation(page: number, x: number, y: number, s: Style): TextAnnot {
   return {
     id: uid(),
     type: "text",
     page,
     x,
     y,
-    w: 200,
+    w: 220,
     h: s.fontSize * 1.6,
     rotation: 0,
     text: "Texte",
@@ -94,12 +124,7 @@ export function createTextAnnotation(
   };
 }
 
-export function createRectTool(
-  tool: ToolId,
-  page: number,
-  r: Rect,
-  s: Style,
-): Annotation {
+export function createRectTool(tool: ToolId, page: number, r: Rect, s: Style): Annotation {
   switch (tool) {
     case "rect":
     case "ellipse":

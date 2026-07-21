@@ -40,11 +40,11 @@ type Props = {
 
 export function PropertyPanel({ annotation: a, pageCount, onChange, onDelete }: Props) {
   const { t } = useLocale();
-  if (!a) return <div className="panel-empty">{t("noSelection")}</div>;
+  if (!a) return <div className="props-empty">{t("noSelection")}</div>;
 
   return (
-    <div className="prop-panel">
-      <div className="prop-title">{t("props")}</div>
+    <div className="props">
+      <div className="props-head">{t("props")}</div>
 
       {(a.type === "text" ||
         a.type === "highlight" ||
@@ -264,7 +264,7 @@ export function PropertyPanel({ annotation: a, pageCount, onChange, onDelete }: 
 
       {a.type === "whiteout" && <div className="note">{t("whiteoutWarning")}</div>}
 
-      <button type="button" className="danger" onClick={onDelete} data-testid="delete-annot">
+      <button type="button" className="btn btn-danger" onClick={onDelete} data-testid="delete-annot">
         {t("deleteEl")}
       </button>
     </div>
@@ -273,9 +273,9 @@ export function PropertyPanel({ annotation: a, pageCount, onChange, onDelete }: 
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="prop-row">
+    <label className="field">
       <span>{label}</span>
-      <span className="prop-control">{children}</span>
+      <span className="field-control">{children}</span>
     </label>
   );
 }

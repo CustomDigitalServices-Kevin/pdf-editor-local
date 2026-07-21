@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useLocale } from "../i18n/LocaleProvider";
+import { IconFile } from "./icons";
 
 export function Dropzone({ onFile }: { onFile: (file: File) => void }) {
   const { t } = useLocale();
@@ -18,7 +19,9 @@ export function Dropzone({ onFile }: { onFile: (file: File) => void }) {
         e.preventDefault();
         setOver(true);
       }}
-      onDragLeave={() => { setOver(false); }}
+      onDragLeave={() => {
+        setOver(false);
+      }}
       onDrop={(e) => {
         e.preventDefault();
         setOver(false);
@@ -26,18 +29,22 @@ export function Dropzone({ onFile }: { onFile: (file: File) => void }) {
       }}
       onClick={() => inputRef.current?.click()}
     >
-      <p className="drop-hint">{t("dropHint")}</p>
-      <button type="button" className="primary" data-testid="choose-pdf">
+      <span className="drop-icon">
+        <IconFile width={34} height={34} />
+      </span>
+      <p className="drop-title">{t("dropHint")}</p>
+      <button type="button" className="btn btn-primary" data-testid="choose-pdf">
         {t("dropCta")}
       </button>
-      <p className="privacy">{t("privacyNote")}</p>
       <input
         ref={inputRef}
         type="file"
         accept="application/pdf"
         hidden
         data-testid="file-input"
-        onChange={(e) => { pick(e.target.files); }}
+        onChange={(e) => {
+          pick(e.target.files);
+        }}
       />
     </div>
   );

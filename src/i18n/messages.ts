@@ -9,8 +9,7 @@ export const MESSAGES = {
     tagline: "Éditez vos PDF sans upload. Tout reste dans votre navigateur.",
     dropHint: "Glissez un PDF ici ou cliquez pour choisir un fichier",
     dropCta: "Choisir un PDF",
-    privacyNote:
-      "Aucun envoi serveur. Vos fichiers ne quittent jamais votre appareil.",
+    privacyNote: "Aucun envoi serveur. Vos fichiers ne quittent jamais votre appareil.",
     export: "Télécharger le PDF",
     exporting: "Génération…",
     newFile: "Nouveau fichier",
@@ -52,9 +51,10 @@ export const MESSAGES = {
     movePageUp: "Monter",
     movePageDown: "Descendre",
     insertBlank: "Page vierge",
-    whiteoutWarning:
-      "Le masquage cache visuellement mais ne supprime pas le texte sous-jacent.",
+    whiteoutWarning: "Le masquage cache visuellement mais ne supprime pas le texte sous-jacent.",
     none: "Aucun",
+    placeHint: "Cliquez pour placer",
+    mergePdf: "Fusionner un PDF",
   },
   en: {
     appTitle: "Local PDF editor",
@@ -103,9 +103,10 @@ export const MESSAGES = {
     movePageUp: "Move up",
     movePageDown: "Move down",
     insertBlank: "Blank page",
-    whiteoutWarning:
-      "Whiteout hides visually but does not remove the underlying text.",
+    whiteoutWarning: "Whiteout hides visually but does not remove the underlying text.",
     none: "None",
+    placeHint: "Click to place",
+    mergePdf: "Merge a PDF",
   },
 } as const;
 

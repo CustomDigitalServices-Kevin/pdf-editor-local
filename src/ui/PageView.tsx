@@ -5,7 +5,8 @@ import { renderPage } from "../engines/pdf/render";
 import type { Annotation, PageEntry, LineAnnot, InkAnnot, ImageAnnot } from "../core/types";
 import type { Style, ToolId } from "../state/defaults";
 import {
-  RECT_TOOLS,
+  PLACEMENT_TOOLS,
+  defaultBoxSize,
   createInkAnnotation,
   createLineTool,
   createRectTool,
@@ -18,15 +19,22 @@ import {
   resizeAnnotation,
   translateAnnotation,
 } from "../state/geometry";
+import { useLocale } from "../i18n/LocaleProvider";
+
+const ACCENT = "#f0883e";
 
 export type PendingImage = {
   type: "image" | "signature";
   bytes: Uint8Array;
   mime: "image/png" | "image/jpeg";
+  /** default footprint in view points */
+  w: number;
+  h: number;
 };
 
 type Props = {
   pdfDoc: PdfDoc | null;
+  importedDoc: PdfDoc | null;
   entry: PageEntry;
   pageIndex: number; // final index
   scale: number;
@@ -41,30 +49,54 @@ type Props = {
 };
 
 type Drag =
-  | { mode: "create-rect"; x0: number; y0: number; x1: number; y1: number }
   | { mode: "create-line"; x0: number; y0: number; x1: number; y1: number }
   | { mode: "create-ink"; points: Array<[number, number]> }
-  | {
-      mode: "move";
-      id: string;
-      orig: Annotation;
-      startVx: number;
-      startVy: number;
-    }
-  | {
-      mode: "resize";
-      id: string;
-      orig: Annotation;
-      startVx: number;
-      startVy: number;
-    };
+  | { mode: "move"; id: string; orig: Annotation; startVx: number; startVy: number }
+  | { mode: "resize"; id: string; orig: Annotation; startVx: number; startVy: number };
+
+type Placement = { w: number; h: number; round: boolean; img: PendingImage | null };
 
 export function PageView(props: Props) {
-  const { pdfDoc, entry, pageIndex, scale, annotations, selectedId, tool, style } = props;
+  const { pdfDoc, importedDoc, entry, pageIndex, scale, annotations, selectedId, tool, style } =
+    props;
+  const { t } = useLocale();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const ghostRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [drag, setDrag] = useState<Drag | null>(null);
+
+  // What a click will drop, or null for select/stroke tools.
+  const placement = useMemo<Placement | null>(() => {
+    if (!PLACEMENT_TOOLS.includes(tool)) return null;
+    if (tool === "image" || tool === "signature") {
+      return props.pendingImage
+        ? {
+            w: props.pendingImage.w,
+            h: props.pendingImage.h,
+            round: false,
+            img: props.pendingImage,
+          }
+        : null;
+    }
+    const s = defaultBoxSize(tool, style);
+    return { w: s.w, h: s.h, round: tool === "ellipse", img: null };
+  }, [tool, props.pendingImage, style]);
+
+  const ghostUrl = useMemo(() => {
+    if (placement?.img) {
+      return URL.createObjectURL(
+        new Blob([placement.img.bytes.slice()], { type: placement.img.mime }),
+      );
+    }
+    return null;
+  }, [placement?.img]);
+  useEffect(
+    () => () => {
+      if (ghostUrl) URL.revokeObjectURL(ghostUrl);
+    },
+    [ghostUrl],
+  );
 
   // Render the page (or a white blank) whenever inputs change.
   useEffect(() => {
@@ -85,25 +117,24 @@ export function PageView(props: Props) {
       setSize({ w, h });
       return;
     }
-    if (src.kind === "original" && pdfDoc) {
-      renderPage(pdfDoc, src.index + 1, canvas, scale, entry.rotation)
+    const doc = src.kind === "imported" ? importedDoc : pdfDoc;
+    if (doc) {
+      renderPage(doc, src.index + 1, canvas, scale, entry.rotation)
         .then((s) => {
           if (!cancelled) setSize({ w: s.widthPx, h: s.heightPx });
         })
         .catch(() => {
-          /* render failure leaves the previous frame; the page just stays blank */
+          /* render failure leaves the previous frame */
         });
     }
     return () => {
       cancelled = true;
     };
-  }, [pdfDoc, entry.source, entry.rotation, scale]);
+  }, [pdfDoc, importedDoc, entry.source, entry.rotation, scale]);
 
   const toView = (clientX: number, clientY: number): { vx: number; vy: number } => {
     const rect = overlayRef.current?.getBoundingClientRect();
-    const px = clientX - (rect?.left ?? 0);
-    const py = clientY - (rect?.top ?? 0);
-    return { vx: px / scale, vy: py / scale };
+    return { vx: (clientX - (rect?.left ?? 0)) / scale, vy: (clientY - (rect?.top ?? 0)) / scale };
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -115,36 +146,66 @@ export function PageView(props: Props) {
       props.onSelect(null);
       return;
     }
-    if (tool === "text") {
-      props.onCreate(createTextAnnotation(pageIndex, vx, vy, style));
+    if (placement) {
+      const x = vx - placement.w / 2;
+      const y = vy - placement.h / 2;
+      if (tool === "text") {
+        props.onCreate(createTextAnnotation(pageIndex, x, y, style));
+      } else if ((tool === "image" || tool === "signature") && placement.img) {
+        props.onCreate(
+          createImageAnnotation(
+            placement.img.type,
+            pageIndex,
+            { x, y, w: placement.w, h: placement.h },
+            placement.img.bytes,
+            placement.img.mime,
+          ),
+        );
+      } else {
+        props.onCreate(
+          createRectTool(tool, pageIndex, { x, y, w: placement.w, h: placement.h }, style),
+        );
+      }
       return;
     }
     if (tool === "line" || tool === "arrow") {
       setDrag({ mode: "create-line", x0: vx, y0: vy, x1: vx, y1: vy });
-      return;
-    }
-    if (tool === "ink") {
+    } else if (tool === "ink") {
       setDrag({ mode: "create-ink", points: [[vx, vy]] });
-      return;
     }
-    // rect tools + image/signature
-    setDrag({ mode: "create-rect", x0: vx, y0: vy, x1: vx, y1: vy });
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!drag) return;
     const { vx, vy } = toView(e.clientX, e.clientY);
-    if (drag.mode === "create-rect" || drag.mode === "create-line") {
-      setDrag({ ...drag, x1: vx, y1: vy });
-    } else if (drag.mode === "create-ink") {
-      setDrag({ mode: "create-ink", points: [...drag.points, [vx, vy]] });
-    } else if (drag.mode === "move") {
-      props.onUpdate(drag.id, translateAnnotation(drag.orig, vx - drag.startVx, vy - drag.startVy));
-    } else {
-      const base = annotationRect(drag.orig);
-      if (base) {
-        const r = rectFromDrag(base.x, base.y, vx, vy);
-        props.onUpdate(drag.id, resizeAnnotation(drag.orig, r));
+    if (drag) {
+      if (drag.mode === "create-line") {
+        setDrag({ ...drag, x1: vx, y1: vy });
+      } else if (drag.mode === "create-ink") {
+        setDrag({ mode: "create-ink", points: [...drag.points, [vx, vy]] });
+      } else if (drag.mode === "move") {
+        props.onUpdate(
+          drag.id,
+          translateAnnotation(drag.orig, vx - drag.startVx, vy - drag.startVy),
+        );
+      } else {
+        const base = annotationRect(drag.orig);
+        if (base) {
+          props.onUpdate(
+            drag.id,
+            resizeAnnotation(drag.orig, rectFromDrag(base.x, base.y, vx, vy)),
+          );
+        }
+      }
+      return;
+    }
+    // Ghost: direct DOM transform, no React state per frame.
+    if (placement) {
+      const el = ghostRef.current;
+      if (el) {
+        el.style.display = "block";
+        const gx = (vx - placement.w / 2) * scale;
+        const gy = (vy - placement.h / 2) * scale;
+        el.style.transform = `translate3d(${gx}px, ${gy}px, 0)`;
       }
     }
   };
@@ -152,29 +213,17 @@ export function PageView(props: Props) {
   const onPointerUp = (e: React.PointerEvent) => {
     overlayRef.current?.releasePointerCapture(e.pointerId);
     if (!drag) return;
-    if (drag.mode === "create-rect") {
-      const r = rectFromDrag(drag.x0, drag.y0, drag.x1, drag.y1);
-      if (r.w >= 3 && r.h >= 3) {
-        if ((tool === "image" || tool === "signature") && props.pendingImage) {
-          props.onCreate(
-            createImageAnnotation(
-              props.pendingImage.type,
-              pageIndex,
-              r,
-              props.pendingImage.bytes,
-              props.pendingImage.mime,
-            ),
-          );
-        } else if (RECT_TOOLS.includes(tool)) {
-          props.onCreate(createRectTool(tool, pageIndex, r, style));
-        }
-      }
-    } else if (drag.mode === "create-line" && (tool === "line" || tool === "arrow")) {
+    if (drag.mode === "create-line" && (tool === "line" || tool === "arrow")) {
       props.onCreate(createLineTool(tool, pageIndex, drag.x0, drag.y0, drag.x1, drag.y1, style));
     } else if (drag.mode === "create-ink" && drag.points.length >= 2) {
       props.onCreate(createInkAnnotation(pageIndex, drag.points, style));
     }
     setDrag(null);
+  };
+
+  const onPointerLeave = () => {
+    const el = ghostRef.current;
+    if (el) el.style.display = "none";
   };
 
   const startMove = (e: React.PointerEvent, a: Annotation) => {
@@ -198,11 +247,12 @@ export function PageView(props: Props) {
       <canvas ref={canvasRef} className="page-canvas" />
       <div
         ref={overlayRef}
-        className="page-overlay"
+        className={`page-overlay${placement || tool === "line" || tool === "arrow" || tool === "ink" ? " placing" : ""}`}
         style={{ width: size.w, height: size.h }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerLeave={onPointerLeave}
         data-testid={`overlay-${pageIndex}`}
       >
         <svg className="vector-layer" width={size.w} height={size.h}>
@@ -231,6 +281,7 @@ export function PageView(props: Props) {
           )}
           <DraftVector drag={drag} scale={scale} />
         </svg>
+
         {annotations.map((a) => {
           const rect = annotationRect(a);
           if (!rect) return null;
@@ -250,7 +301,17 @@ export function PageView(props: Props) {
             />
           );
         })}
-        <DraftRect drag={drag} scale={scale} tool={tool} />
+
+        {placement && (
+          <div
+            ref={ghostRef}
+            className={`ghost${placement.round ? " round" : ""}`}
+            style={{ width: placement.w * scale, height: placement.h * scale }}
+          >
+            {ghostUrl && <img src={ghostUrl} alt="" />}
+            <span className="ghost-hint">{t("placeHint")}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -277,7 +338,7 @@ function BoxAnnot(props: {
     height: rect.h * scale,
     boxSizing: "border-box",
     cursor: "move",
-    outline: selected ? "1px solid #2563eb" : "none",
+    outline: selected ? `1.5px solid ${ACCENT}` : "none",
   };
 
   let inner: React.ReactNode = null;
@@ -302,8 +363,8 @@ function BoxAnnot(props: {
     };
     inner = <div style={line} />;
   } else if (a.type === "link") {
-    style.border = "1px dashed #2563eb";
-    style.background = "rgba(37,99,235,0.06)";
+    style.border = `1px dashed ${ACCENT}`;
+    style.background = "rgba(240,136,62,0.08)";
   } else if (a.type === "text") {
     style.color = rgbCss(a.color);
     style.fontFamily = a.fontFamily.startsWith("Times")
@@ -333,7 +394,7 @@ function BoxAnnot(props: {
             bottom: -6,
             width: 12,
             height: 12,
-            background: "#2563eb",
+            background: ACCENT,
             borderRadius: 2,
             cursor: "nwse-resize",
           }}
@@ -351,8 +412,6 @@ function annotationResizable(a: Annotation): boolean {
 function ImageAnnotImg({ a }: { a: ImageAnnot }) {
   const url = useMemo(
     () => URL.createObjectURL(new Blob([a.bytes.slice()], { type: a.mime })),
-    // bytes/mime are fixed for a given annotation id; keying on id avoids
-    // rebuilding the object URL on every unrelated re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [a.id],
   );
@@ -366,12 +425,7 @@ function ImageAnnotImg({ a }: { a: ImageAnnot }) {
     <img
       src={url}
       alt=""
-      style={{
-        width: "100%",
-        height: "100%",
-        objectFit: "fill",
-        pointerEvents: "none",
-      }}
+      style={{ width: "100%", height: "100%", objectFit: "fill", pointerEvents: "none" }}
     />
   );
 }
@@ -403,7 +457,7 @@ function VectorLine(props: {
           y1={a.y1 * scale}
           x2={a.x2 * scale}
           y2={a.y2 * scale}
-          stroke="#2563eb"
+          stroke={ACCENT}
           strokeWidth={1}
           strokeDasharray="4 3"
         />
@@ -460,32 +514,12 @@ function VectorInk(props: {
     <polyline
       points={pts}
       fill="none"
-      stroke={selected ? "#2563eb" : rgbCss(a.stroke)}
+      stroke={selected ? ACCENT : rgbCss(a.stroke)}
       strokeWidth={a.strokeWidth * scale}
       strokeLinecap="round"
       strokeLinejoin="round"
       onPointerDown={props.onSelect}
       style={{ cursor: "move" }}
-    />
-  );
-}
-
-function DraftRect({ drag, scale, tool }: { drag: Drag | null; scale: number; tool: ToolId }) {
-  if (!drag || drag.mode !== "create-rect") return null;
-  const r = rectFromDrag(drag.x0, drag.y0, drag.x1, drag.y1);
-  const isEllipse = tool === "ellipse";
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: r.x * scale,
-        top: r.y * scale,
-        width: r.w * scale,
-        height: r.h * scale,
-        border: "1px dashed #2563eb",
-        borderRadius: isEllipse ? "50%" : 0,
-        pointerEvents: "none",
-      }}
     />
   );
 }
@@ -499,7 +533,7 @@ function DraftVector({ drag, scale }: { drag: Drag | null; scale: number }) {
         y1={drag.y0 * scale}
         x2={drag.x1 * scale}
         y2={drag.y1 * scale}
-        stroke="#2563eb"
+        stroke={ACCENT}
         strokeWidth={2}
         strokeDasharray="4 3"
       />
@@ -507,7 +541,7 @@ function DraftVector({ drag, scale }: { drag: Drag | null; scale: number }) {
   }
   if (drag.mode === "create-ink") {
     const pts = drag.points.map(([x, y]) => `${x * scale},${y * scale}`).join(" ");
-    return <polyline points={pts} fill="none" stroke="#2563eb" strokeWidth={2} />;
+    return <polyline points={pts} fill="none" stroke={ACCENT} strokeWidth={2} />;
   }
   return null;
 }

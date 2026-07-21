@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "../i18n/LocaleProvider";
 import { loadPdf, getPageInfo } from "../engines/pdf/render";
 import type { PdfDoc } from "../engines/pdf/render";
@@ -13,12 +13,34 @@ import { PropertyPanel } from "./PropertyPanel";
 import { Thumbnails } from "./Thumbnails";
 import { Dropzone } from "./Dropzone";
 import { SignatureDialog } from "./SignatureDialog";
+import { IconZoomIn, IconZoomOut, IconDownload, IconFile, IconGlobe } from "./icons";
 
 const A4 = { w: 595.28, h: 841.89 };
 
 function normalizeRotation(deg: number): PageRotation {
-  const r = (((Math.round(deg / 90) * 90) % 360) + 360) % 360;
-  return r as PageRotation;
+  return ((((Math.round(deg / 90) * 90) % 360) + 360) % 360) as PageRotation;
+}
+
+/** Fit an image to a sensible default footprint (view points). */
+async function imageDefaultSize(
+  bytes: Uint8Array,
+  mime: string,
+): Promise<{ w: number; h: number }> {
+  try {
+    const bmp = await createImageBitmap(new Blob([bytes.slice()], { type: mime }));
+    const nw = bmp.width || 1;
+    const nh = bmp.height || 1;
+    bmp.close();
+    let w = 180;
+    let h = (180 * nh) / nw;
+    if (h > 260) {
+      h = 260;
+      w = (260 * nw) / nh;
+    }
+    return { w: Math.round(w), h: Math.round(h) };
+  } catch {
+    return { w: 180, h: 120 };
+  }
 }
 
 function download(bytes: Uint8Array, name: string): void {
@@ -48,6 +70,10 @@ export function App() {
   const [signOpen, setSignOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Imported PDFs: pdfjs proxy for on-screen render, raw bytes for export.
+  const importedDocs = useRef(new Map<string, PdfDoc>());
+  const importedBytes = useRef(new Map<string, Uint8Array>());
+
   const selected = annotations.find((a) => a.id === selectedId) ?? null;
 
   const loadFile = useCallback(async (file: File) => {
@@ -68,6 +94,10 @@ export function App() {
     setAnnotations([]);
     setSelectedId(null);
     setActivePage(0);
+    // Fit the widest page to the available canvas width (rail + panels aside).
+    const maxW = Math.max(...infos.map((i) => i.mediaWidth), 1);
+    const availW = window.innerWidth - 544;
+    setScale(Math.min(1.8, Math.max(0.5, availW / maxW)));
   }, []);
 
   const reset = () => {
@@ -77,6 +107,19 @@ export function App() {
     setAnnotations([]);
     setSelectedId(null);
     setTool("select");
+    setPendingImage(null);
+    importedDocs.current.clear();
+    importedBytes.current.clear();
+  };
+
+  const setPending = (
+    type: "image" | "signature",
+    bytes: Uint8Array,
+    mime: "image/png" | "image/jpeg",
+  ) => {
+    void imageDefaultSize(bytes, mime).then((sz) => {
+      setPendingImage({ type, bytes, mime, w: sz.w, h: sz.h });
+    });
   };
 
   const onCreate = (a: Annotation) => {
@@ -102,8 +145,7 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
-        const el = document.activeElement;
-        const tag = el?.tagName;
+        const tag = document.activeElement?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
         e.preventDefault();
         onDeleteSelected();
@@ -126,11 +168,11 @@ export function App() {
         const f = input.files?.[0];
         if (!f) return;
         void f.arrayBuffer().then((buf) => {
-          setPendingImage({
-            type: "image",
-            bytes: new Uint8Array(buf),
-            mime: f.type === "image/png" ? "image/png" : "image/jpeg",
-          });
+          setPending(
+            "image",
+            new Uint8Array(buf),
+            f.type === "image/png" ? "image/png" : "image/jpeg",
+          );
         });
       };
       input.click();
@@ -169,6 +211,29 @@ export function App() {
     setAnnotations((prev) => prev.map((a) => (a.page > at ? { ...a, page: a.page + 1 } : a)));
   };
 
+  const mergePdf = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/pdf";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      void f.arrayBuffer().then(async (buf) => {
+        const bytes = new Uint8Array(buf);
+        const docId = crypto.randomUUID();
+        const proxy = await loadPdf(bytes.slice());
+        importedDocs.current.set(docId, proxy);
+        importedBytes.current.set(docId, bytes);
+        const added: PageEntry[] = Array.from({ length: proxy.numPages }, (_unused, i) => ({
+          source: { kind: "imported", docId, index: i },
+          rotation: 0,
+        }));
+        setPages((prev) => [...prev, ...added]);
+      });
+    };
+    input.click();
+  };
+
   const movePage = (i: number, dir: -1 | 1) => {
     const j = i + dir;
     if (j < 0 || j >= pages.length) return;
@@ -194,6 +259,7 @@ export function App() {
       const bytes = await exportPdf({
         originalBytes: pdfBytes,
         doc: { annotations, pages, form: {} },
+        importedBytes: importedBytes.current,
       });
       download(bytes, "edited.pdf");
     } finally {
@@ -201,20 +267,44 @@ export function App() {
     }
   };
 
+  const zoomPct = Math.round(scale * 100);
+
+  const localeBtn = (
+    <button
+      type="button"
+      className="btn btn-ghost"
+      aria-label="language"
+      onClick={() => {
+        setLocale(locale === "fr" ? "en" : "fr");
+      }}
+    >
+      <IconGlobe />
+      {locale === "fr" ? "EN" : "FR"}
+    </button>
+  );
+
   if (!pdfDoc) {
     return (
       <div className="app">
         <header className="topbar">
-          <span className="brand">{t("appTitle")}</span>
-          <LocaleToggle locale={locale} setLocale={setLocale} />
+          <span className="brand">
+            <span className="brand-dot" />
+            {t("appTitle")}
+          </span>
+          <span className="spacer" />
+          {localeBtn}
         </header>
         <main className="landing">
-          <p className="tagline">{t("tagline")}</p>
+          <div className="hero">
+            <h1>{t("appTitle")}</h1>
+            <p>{t("tagline")}</p>
+          </div>
           <Dropzone
             onFile={(f) => {
               void loadFile(f);
             }}
           />
+          <span className="privacy-badge">{t("privacyNote")}</span>
         </main>
       </div>
     );
@@ -223,47 +313,55 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">{t("appTitle")}</span>
-        <div className="spacer" />
-        <button
-          type="button"
-          className="ghost"
-          onClick={() => {
-            setScale((s) => Math.max(0.5, s - 0.15));
-          }}
-        >
-          −
-        </button>
-        <span className="zoom">{Math.round(scale * 100)}%</span>
-        <button
-          type="button"
-          className="ghost"
-          onClick={() => {
-            setScale((s) => Math.min(3, s + 0.15));
-          }}
-        >
-          +
-        </button>
-        <button type="button" className="ghost" onClick={reset}>
-          {t("newFile")}
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={busy}
-          onClick={() => {
-            void doExport();
-          }}
-          data-testid="export-btn"
-        >
-          {busy ? t("exporting") : t("export")}
-        </button>
-        <LocaleToggle locale={locale} setLocale={setLocale} />
+        <span className="brand">
+          <span className="brand-dot" />
+          {t("appTitle")}
+        </span>
+        <span className="spacer" />
+        <div className="seg">
+          <button
+            type="button"
+            aria-label="zoom out"
+            onClick={() => {
+              setScale((s) => Math.max(0.5, s - 0.15));
+            }}
+          >
+            <IconZoomOut />
+          </button>
+          <span className="zoom-val">{zoomPct}%</span>
+          <button
+            type="button"
+            aria-label="zoom in"
+            onClick={() => {
+              setScale((s) => Math.min(3, s + 0.15));
+            }}
+          >
+            <IconZoomIn />
+          </button>
+        </div>
+        <div className="top-actions">
+          <button type="button" className="btn btn-ghost" onClick={reset}>
+            <IconFile />
+            {t("newFile")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => {
+              void doExport();
+            }}
+            data-testid="export-btn"
+          >
+            <IconDownload />
+            {busy ? t("exporting") : t("export")}
+          </button>
+          {localeBtn}
+        </div>
       </header>
 
-      <Toolbar tool={tool} onTool={pickTool} />
-
       <div className="workspace">
+        <Toolbar tool={tool} onTool={pickTool} />
         <Thumbnails
           pages={pages}
           activePage={activePage}
@@ -277,9 +375,10 @@ export function App() {
           onDelete={deletePage}
           onMove={movePage}
           onInsertBlank={insertBlank}
+          onMerge={mergePdf}
         />
 
-        <div className="pages-scroll">
+        <div className="canvas">
           {pages.map((entry, i) => (
             <div
               className="page-wrap"
@@ -291,6 +390,11 @@ export function App() {
             >
               <PageView
                 pdfDoc={pdfDoc}
+                importedDoc={
+                  entry.source.kind === "imported"
+                    ? (importedDocs.current.get(entry.source.docId) ?? null)
+                    : null
+                }
                 entry={entry}
                 pageIndex={i}
                 scale={scale}
@@ -325,30 +429,10 @@ export function App() {
           }}
           onDone={(bytes) => {
             setSignOpen(false);
-            setPendingImage({ type: "signature", bytes, mime: "image/png" });
+            setPending("signature", bytes, "image/png");
           }}
         />
       )}
     </div>
-  );
-}
-
-function LocaleToggle({
-  locale,
-  setLocale,
-}: {
-  locale: "fr" | "en";
-  setLocale: (l: "fr" | "en") => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="ghost"
-      onClick={() => {
-        setLocale(locale === "fr" ? "en" : "fr");
-      }}
-    >
-      {locale === "fr" ? "EN" : "FR"}
-    </button>
   );
 }

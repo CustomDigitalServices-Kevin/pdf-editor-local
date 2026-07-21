@@ -82,13 +82,13 @@ export function SignatureDialog({ onDone, onCancel }: Props) {
           data-testid="sign-canvas"
         />
         <div className="modal-actions">
-          <button type="button" className="ghost" onClick={clear}>
+          <button type="button" className="btn btn-ghost" onClick={clear}>
             {t("none")}
           </button>
-          <button type="button" className="ghost" onClick={onCancel}>
+          <button type="button" className="btn btn-ghost" onClick={onCancel}>
             {t("deleteEl")}
           </button>
-          <button type="button" className="primary" onClick={validate} data-testid="sign-done">
+          <button type="button" className="btn btn-primary" onClick={validate} data-testid="sign-done">
             OK
           </button>
         </div>
