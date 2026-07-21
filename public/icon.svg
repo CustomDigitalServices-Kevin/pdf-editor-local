@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Filigrane local">
+  <rect width="64" height="64" rx="14" fill="#0b0b0d" />
+  <path d="M32 8 14 15v14c0 12 8 17 18 23 10-6 18-11 18-23V15z" fill="none" stroke="#3b5bdb" stroke-width="3.5" stroke-linejoin="round" />
+  <text x="32" y="40" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="bold" fill="#3b5bdb" text-anchor="middle" transform="rotate(-20 32 34)">F</text>
+</svg>
