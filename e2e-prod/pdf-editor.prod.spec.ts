@@ -61,16 +61,14 @@ test("PROD: annotate + export produces a valid PDF with the baked link", async (
   await loadFixture(page);
 
   await page.getByTestId("tool-text").click();
-  await page.getByTestId("overlay-0").click({ position: { x: 60, y: 60 } });
-  await page.getByTestId("text-input").fill("E2E PROD");
+  await page.getByTestId("overlay-0").click({ position: { x: 200, y: 180 } });
+  const editable = page.getByTestId("text-edit");
+  await editable.waitFor();
+  await editable.pressSequentially("E2E PROD");
+  await page.keyboard.press("Escape");
 
-  const b = await page.getByTestId("overlay-0").boundingBox();
-  if (!b) throw new Error("overlay-0 has no bounding box");
   await page.getByTestId("tool-link").click();
-  await page.mouse.move(b.x + 40, b.y + 120);
-  await page.mouse.down();
-  await page.mouse.move(b.x + 220, b.y + 160, { steps: 8 });
-  await page.mouse.up();
+  await page.getByTestId("overlay-0").click({ position: { x: 120, y: 150 } });
   await page.getByTestId("link-target").fill("https://www.custom-digital-services.com/outils/");
 
   const bytes = await exportBytes(page);

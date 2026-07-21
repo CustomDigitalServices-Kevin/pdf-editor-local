@@ -58,11 +58,15 @@ test("loads a PDF and renders every page", async ({ page }) => {
   await expect(page.getByTestId("overlay-1")).toBeVisible();
 });
 
-test("adds a text box and exports a valid PDF with the same page count", async ({ page }) => {
+test("adds a text box, edits it inline, and exports a valid PDF", async ({ page }) => {
   await loadFixture(page);
   await page.getByTestId("tool-text").click();
-  await page.getByTestId("overlay-0").click({ position: { x: 60, y: 60 } });
-  await page.getByTestId("text-input").fill("E2E BONJOUR");
+  await page.getByTestId("overlay-0").click({ position: { x: 200, y: 180 } });
+  // The new text box opens straight into inline editing (contentEditable focused).
+  const editable = page.getByTestId("text-edit");
+  await editable.waitFor();
+  await editable.pressSequentially("E2E BONJOUR");
+  await page.keyboard.press("Escape"); // commit
   const bytes = await exportBytes(page);
   const doc = await PDFDocument.load(bytes);
   expect(doc.getPageCount()).toBe(2);
