@@ -17,6 +17,7 @@
     "format:write": "prettier --write .",
     "check:licenses": "node scripts/check-licenses.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:prod": "playwright test --config playwright.prod.config.ts",
     "serve:dist": "node scripts/serve-dist.mjs"
   },
   "dependencies": {
