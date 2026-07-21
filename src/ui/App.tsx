@@ -9,7 +9,7 @@ import type { ToolId } from "../state/defaults";
 import { Toolbar } from "./Toolbar";
 import { PageView } from "./PageView";
 import type { PendingImage } from "./PageView";
-import { PropertyPanel } from "./PropertyPanel";
+import { ElementsPanel } from "./ElementsPanel";
 import { Thumbnails } from "./Thumbnails";
 import { Dropzone } from "./Dropzone";
 import { SignatureDialog } from "./SignatureDialog";
@@ -64,6 +64,7 @@ export function App() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [tool, setTool] = useState<ToolId>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [scale, setScale] = useState(1.3);
   const [activePage, setActivePage] = useState(0);
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
@@ -73,8 +74,6 @@ export function App() {
   // Imported PDFs: pdfjs proxy for on-screen render, raw bytes for export.
   const importedDocs = useRef(new Map<string, PdfDoc>());
   const importedBytes = useRef(new Map<string, Uint8Array>());
-
-  const selected = annotations.find((a) => a.id === selectedId) ?? null;
 
   const loadFile = useCallback(async (file: File) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -130,10 +129,25 @@ export function App() {
       setTool("select");
     }
     if (a.type === "image" || a.type === "signature") setPendingImage(null);
+    // A fresh text box opens straight into inline editing.
+    if (a.type === "text") setEditingId(a.id);
   };
 
   const onUpdate = (id: string, next: Annotation) => {
     setAnnotations((prev) => prev.map((a) => (a.id === id ? next : a)));
+  };
+
+  const commitText = (id: string, text: string) => {
+    setEditingId(null);
+    setAnnotations((prev) =>
+      prev.map((a) => (a.id === id && a.type === "text" ? { ...a, text } : a)),
+    );
+  };
+
+  const deleteById = (id: string) => {
+    setAnnotations((prev) => prev.filter((a) => a.id !== id));
+    if (selectedId === id) setSelectedId(null);
+    if (editingId === id) setEditingId(null);
   };
 
   const onDeleteSelected = useCallback(() => {
@@ -400,24 +414,38 @@ export function App() {
                 scale={scale}
                 annotations={annotations.filter((a) => a.page === i)}
                 selectedId={selectedId}
+                editingId={editingId}
                 tool={tool}
                 style={DEFAULT_STYLE}
                 pendingImage={pendingImage}
                 onCreate={onCreate}
                 onUpdate={onUpdate}
                 onSelect={setSelectedId}
+                onStartEdit={setEditingId}
+                onCommitText={commitText}
               />
             </div>
           ))}
         </div>
 
-        <PropertyPanel
-          annotation={selected}
+        <ElementsPanel
+          annotations={annotations}
+          selectedId={selectedId}
           pageCount={pages.length}
+          onSelect={(id) => {
+            setSelectedId(id);
+            const a = annotations.find((x) => x.id === id);
+            if (a) {
+              setActivePage(a.page);
+              document
+                .getElementById(`page-${a.page}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }}
           onChange={(next) => {
             onUpdate(next.id, next);
           }}
-          onDelete={onDeleteSelected}
+          onDelete={deleteById}
         />
       </div>
 

@@ -55,6 +55,10 @@ export const MESSAGES = {
     none: "Aucun",
     placeHint: "Cliquez pour placer",
     mergePdf: "Fusionner un PDF",
+    tools: "Outils",
+    elements: "Éléments",
+    noElements: "Aucun élément ajouté. Choisissez un outil et cliquez sur la page.",
+    editText: "Double-cliquez pour éditer le texte",
   },
   en: {
     appTitle: "Local PDF editor",
@@ -107,6 +111,10 @@ export const MESSAGES = {
     none: "None",
     placeHint: "Click to place",
     mergePdf: "Merge a PDF",
+    tools: "Tools",
+    elements: "Elements",
+    noElements: "No element yet. Pick a tool and click on the page.",
+    editText: "Double-click to edit the text",
   },
 } as const;
 

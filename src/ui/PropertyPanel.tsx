@@ -31,21 +31,18 @@ const FONTS: StandardFontKey[] = [
   "Courier-Bold",
 ];
 
-type Props = {
-  annotation: Annotation | null;
+type FieldsProps = {
+  annotation: Annotation;
   pageCount: number;
   onChange: (next: Annotation) => void;
-  onDelete: () => void;
 };
 
-export function PropertyPanel({ annotation: a, pageCount, onChange, onDelete }: Props) {
+// Reusable property fields for one annotation, rendered inside the expanded
+// element row (the persistent right "properties menu" was removed).
+export function AnnotationFields({ annotation: a, pageCount, onChange }: FieldsProps) {
   const { t } = useLocale();
-  if (!a) return <div className="props-empty">{t("noSelection")}</div>;
-
   return (
-    <div className="props">
-      <div className="props-head">{t("props")}</div>
-
+    <div className="el-fields-inner">
       {(a.type === "text" ||
         a.type === "highlight" ||
         a.type === "underline" ||
@@ -263,10 +260,6 @@ export function PropertyPanel({ annotation: a, pageCount, onChange, onDelete }: 
       )}
 
       {a.type === "whiteout" && <div className="note">{t("whiteoutWarning")}</div>}
-
-      <button type="button" className="btn btn-danger" onClick={onDelete} data-testid="delete-annot">
-        {t("deleteEl")}
-      </button>
     </div>
   );
 }

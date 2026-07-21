@@ -43,9 +43,12 @@ type Props = {
   tool: ToolId;
   style: Style;
   pendingImage: PendingImage | null;
+  editingId: string | null;
   onCreate: (a: Annotation) => void;
   onUpdate: (id: string, next: Annotation) => void;
   onSelect: (id: string | null) => void;
+  onStartEdit: (id: string) => void;
+  onCommitText: (id: string, text: string) => void;
 };
 
 type Drag =
@@ -292,11 +295,18 @@ export function PageView(props: Props) {
               rect={rect}
               scale={scale}
               selected={a.id === selectedId}
+              editing={a.id === props.editingId}
               onMove={(e) => {
                 startMove(e, a);
               }}
               onResize={(e) => {
                 startResize(e, a);
+              }}
+              onStartEdit={() => {
+                props.onStartEdit(a.id);
+              }}
+              onCommitText={(text) => {
+                props.onCommitText(a.id, text);
               }}
             />
           );
@@ -321,13 +331,79 @@ function rgbCss(c: { r: number; g: number; b: number }): string {
   return `rgb(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)})`;
 }
 
+// Uncontrolled contentEditable: the DOM owns the text during editing (no state
+// per keystroke, so the caret never jumps). Value is committed on blur/Escape.
+function EditableText({
+  initial,
+  onCommit,
+}: {
+  initial: string;
+  onCommit: (text: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.textContent !== initial) el.textContent = initial;
+    // Focus on the NEXT frame, after the placing click's default focus has
+    // settled: focusing during the same click would be immediately blurred
+    // (the click moves focus to the page), unmounting the editor.
+    const raf = requestAnimationFrame(() => {
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+    // Mount-only: never rewrite the node while the user is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      data-testid="text-edit"
+      onPointerDown={(e) => {
+        e.stopPropagation();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          ref.current?.blur();
+        }
+      }}
+      onBlur={() => {
+        onCommit(ref.current?.textContent ?? "");
+      }}
+      style={{
+        width: "100%",
+        height: "100%",
+        outline: "none",
+        cursor: "text",
+        whiteSpace: "pre-wrap",
+      }}
+    />
+  );
+}
+
 function BoxAnnot(props: {
   a: Annotation;
   rect: { x: number; y: number; w: number; h: number };
   scale: number;
   selected: boolean;
+  editing: boolean;
   onMove: (e: React.PointerEvent) => void;
   onResize: (e: React.PointerEvent) => void;
+  onStartEdit: () => void;
+  onCommitText: (text: string) => void;
 }) {
   const { a, rect, scale, selected } = props;
   const style: React.CSSProperties = {
@@ -375,15 +451,25 @@ function BoxAnnot(props: {
     style.fontSize = a.fontSize * scale;
     style.lineHeight = 1.15;
     style.textAlign = a.align;
-    style.overflow = "hidden";
     style.whiteSpace = "pre-wrap";
-    inner = a.text;
+    style.overflow = props.editing ? "visible" : "hidden";
+    if (props.editing) style.cursor = "text";
+    inner = props.editing ? (
+      <EditableText initial={a.text} onCommit={props.onCommitText} />
+    ) : (
+      a.text
+    );
   } else if (a.type === "image" || a.type === "signature") {
     inner = <ImageAnnotImg a={a} />;
   }
 
   return (
-    <div style={style} onPointerDown={props.onMove} data-annot={a.id}>
+    <div
+      style={style}
+      onPointerDown={props.onMove}
+      onDoubleClick={a.type === "text" ? props.onStartEdit : undefined}
+      data-annot={a.id}
+    >
       {inner}
       {selected && annotationResizable(a) && (
         <div

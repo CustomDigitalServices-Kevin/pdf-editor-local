@@ -50,26 +50,29 @@ const GROUPS: Array<Array<{ id: ToolId; Icon: IconCmp }>> = [
 export function Toolbar({ tool, onTool }: { tool: ToolId; onTool: (t: ToolId) => void }) {
   const { t } = useLocale();
   return (
-    <div className="toolrail" role="toolbar" aria-label={t("props")} aria-orientation="vertical">
+    <div className="toolrail" role="toolbar" aria-label={t("tools")} aria-orientation="vertical">
       {GROUPS.map((group, gi) => (
         <div key={gi} style={{ display: "contents" }}>
           {gi > 0 && <span className="rail-sep" aria-hidden="true" />}
-          {group.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`tool${tool === item.id ? " active" : ""}`}
-              aria-pressed={tool === item.id}
-              aria-label={t(`tool_${item.id}` as MessageKey)}
-              data-tip={t(`tool_${item.id}` as MessageKey)}
-              onClick={() => {
-                onTool(item.id);
-              }}
-              data-testid={`tool-${item.id}`}
-            >
-              <item.Icon />
-            </button>
-          ))}
+          {group.map((item) => {
+            const label = t(`tool_${item.id}` as MessageKey);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`tool${tool === item.id ? " active" : ""}`}
+                aria-pressed={tool === item.id}
+                title={label}
+                onClick={() => {
+                  onTool(item.id);
+                }}
+                data-testid={`tool-${item.id}`}
+              >
+                <item.Icon />
+                <span className="tool-label">{label}</span>
+              </button>
+            );
+          })}
         </div>
       ))}
     </div>
