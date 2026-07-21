@@ -68,15 +68,10 @@ test("adds a text box and exports a valid PDF with the same page count", async (
   expect(doc.getPageCount()).toBe(2);
 });
 
-test("draws a link and bakes its URI into the exported PDF", async ({ page }) => {
+test("places a link (click-to-place) and bakes its URI into the exported PDF", async ({ page }) => {
   await loadFixture(page);
-  const b = await page.getByTestId("overlay-0").boundingBox();
-  if (!b) throw new Error("overlay-0 has no bounding box");
   await page.getByTestId("tool-link").click();
-  await page.mouse.move(b.x + 40, b.y + 40);
-  await page.mouse.down();
-  await page.mouse.move(b.x + 220, b.y + 80, { steps: 8 });
-  await page.mouse.up();
+  await page.getByTestId("overlay-0").click({ position: { x: 80, y: 80 } });
   await page.getByTestId("link-target").fill("https://custom-digital-services.com/edited");
 
   const bytes = await exportBytes(page);
@@ -90,4 +85,23 @@ test("deletes a page and exports fewer pages", async ({ page }) => {
   const bytes = await exportBytes(page);
   const doc = await PDFDocument.load(bytes);
   expect(doc.getPageCount()).toBe(1);
+});
+
+test("merges another PDF and exports the combined page count", async ({ page }) => {
+  await loadFixture(page); // fixture = 2 pages
+  const extra = await makeFixture(); // + 2 pages
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.getByTestId("merge-pdf").click(),
+  ]);
+  await chooser.setFiles({
+    name: "extra.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(extra),
+  });
+  // wait until the 4th page overlay appears
+  await expect(page.getByTestId("overlay-3")).toBeVisible();
+  const bytes = await exportBytes(page);
+  const doc = await PDFDocument.load(bytes);
+  expect(doc.getPageCount()).toBe(4);
 });
