@@ -25,6 +25,24 @@ export type StandardFontKey =
   | "Courier-Oblique"
   | "Courier-BoldOblique";
 
+/**
+ * Handwriting fonts bundled with the app (static TTF, OFL-1.1 / Apache-2.0,
+ * see src/fonts/LICENSES.md). Embedded (subset) in the PDF at export time.
+ */
+export type HandwritingFontKey =
+  | "PatrickHand"
+  | "IndieFlower"
+  | "ShadowsIntoLight"
+  | "GloriaHallelujah"
+  | "ArchitectsDaughter"
+  | "Handlee"
+  | "HomemadeApple"
+  | "Sacramento"
+  | "MarckScript"
+  | "NothingYouCouldDo";
+
+export type FontKey = StandardFontKey | HandwritingFontKey;
+
 export type TextAlign = "left" | "center" | "right";
 
 /** A rectangle in overlay space (top-left origin, pixels). */
@@ -36,10 +54,15 @@ export type TextAnnot = Rect & {
   page: number;
   rotation: number; // degrees, clockwise, around the rect centre
   text: string;
-  fontFamily: StandardFontKey;
+  fontFamily: FontKey;
   fontSize: number; // px in overlay space
   color: Rgb;
   align: TextAlign;
+  /**
+   * Opaque fill painted under the text (null = transparent). Used when a text
+   * box replaces a dotted "write here" zone: the fill hides the dots.
+   */
+  background: Rgb | null;
 };
 
 export type ShapeAnnot = Rect & {
