@@ -61,8 +61,9 @@ function pwa(): Plugin[] {
       runtimeCaching: [
         {
           // Content-hashed and immutable, so CacheFirst is safe: a rebuild
-          // produces a new filename rather than mutating this one.
-          urlPattern: /\.(?:wasm|mjs)$/,
+          // produces a new filename rather than mutating this one. The
+          // handwriting TTFs are fetched on demand and cached the same way.
+          urlPattern: /\.(?:wasm|mjs|ttf)$/,
           handler: "CacheFirst",
           options: {
             cacheName: "pdf-editor-runtime",
