@@ -5,7 +5,7 @@
 import type {
   Annotation,
   Rgb,
-  StandardFontKey,
+  FontKey,
   TextAlign,
   TextAnnot,
   ShapeAnnot,
@@ -85,11 +85,16 @@ export type Style = {
   fill: Rgb | null;
   strokeWidth: number;
   opacity: number;
-  fontFamily: StandardFontKey;
+  fontFamily: FontKey;
   fontSize: number;
   align: TextAlign;
   highlightColor: Rgb;
 };
+
+/** Per-box values a smart placement may override (dotted zone, detected style). */
+export type TextOverrides = Partial<
+  Pick<TextAnnot, "w" | "h" | "text" | "background" | "fontFamily" | "fontSize" | "color">
+>;
 
 export const DEFAULT_STYLE: Style = {
   color: { r: 0.05, g: 0.05, b: 0.05 },
@@ -106,8 +111,14 @@ export function uid(): string {
   return crypto.randomUUID();
 }
 
-export function createTextAnnotation(page: number, x: number, y: number, s: Style): TextAnnot {
-  return {
+export function createTextAnnotation(
+  page: number,
+  x: number,
+  y: number,
+  s: Style,
+  overrides: TextOverrides = {},
+): TextAnnot {
+  const base: TextAnnot = {
     id: uid(),
     type: "text",
     page,
@@ -121,7 +132,9 @@ export function createTextAnnotation(page: number, x: number, y: number, s: Styl
     fontSize: s.fontSize,
     color: s.color,
     align: s.align,
+    background: null,
   };
+  return { ...base, ...overrides };
 }
 
 export function createRectTool(tool: ToolId, page: number, r: Rect, s: Style): Annotation {

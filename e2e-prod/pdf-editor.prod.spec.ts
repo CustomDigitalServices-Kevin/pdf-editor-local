@@ -5,6 +5,23 @@ import { readFileSync } from "node:fs";
 
 const TOOL_PATH = "/outils/pdf-editor/";
 
+/** BaseFont names of the distinct font objects referenced by the pages. */
+function baseFonts(doc: PDFDocument): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const page of doc.getPages()) {
+    const fonts = page.node.Resources()?.lookupMaybe(PDFName.of("Font"), PDFDict);
+    if (!fonts) continue;
+    for (const [, ref] of fonts.entries()) {
+      if (seen.has(ref.toString())) continue;
+      seen.add(ref.toString());
+      const base = doc.context.lookupMaybe(ref, PDFDict)?.get(PDFName.of("BaseFont"));
+      if (base) names.push(base.toString());
+    }
+  }
+  return names;
+}
+
 async function makeFixture(): Promise<Uint8Array> {
   const d = await PDFDocument.create();
   d.addPage([500, 700]);
@@ -75,4 +92,28 @@ test("PROD: annotate + export produces a valid PDF with the baked link", async (
   const doc = await PDFDocument.load(bytes);
   expect(doc.getPageCount()).toBe(2);
   expect(linkUris(doc)).toContain("https://www.custom-digital-services.com/outils/");
+});
+
+// Exercises the full handwriting path against the real CSP: fetch the TTF
+// asset (connect-src 'self'), register a FontFace, then embed it with fontkit
+// at export. This is the class of bug that only prod's CSP can surface.
+test("PROD: a handwriting font is fetched, rendered and embedded on export", async ({ page }) => {
+  await loadFixture(page);
+  await page.getByTestId("tool-text").click();
+  await page.getByTestId("overlay-0").click({ position: { x: 200, y: 180 } });
+  const editable = page.getByTestId("text-edit");
+  await editable.waitFor();
+  await editable.pressSequentially("Kévin à la main");
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("handwriting-toggle").check();
+  await page.getByTestId("font-Sacramento").click();
+  // The TTF is fetched under the strict CSP and its FontFace registers.
+  await page.waitForFunction(() =>
+    Array.from(document.fonts).some((f) => f.family === "Sacramento" && f.status === "loaded"),
+  );
+
+  const bytes = await exportBytes(page);
+  const doc = await PDFDocument.load(bytes);
+  expect(baseFonts(doc)).toContain("/Sacramento");
 });

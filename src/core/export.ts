@@ -13,8 +13,11 @@ import type {
   Annotation,
   PageGeometry,
   StandardFontKey,
+  HandwritingFontKey,
+  FontKey,
   ImageAnnot,
 } from "./types";
+import { isHandwritingFont } from "./fonts";
 import { isIdentityPlan, buildFinalDocument, applyRotations } from "./pages";
 import { fillForm } from "./forms";
 import { attachLink } from "./links";
@@ -49,6 +52,11 @@ export type ExportInput = {
   doc: EditorDoc;
   /** docId -> raw bytes, for pages imported from other PDFs. */
   importedBytes?: Map<string, Uint8Array>;
+  /**
+   * TTF bytes of a bundled handwriting font (browser: fetched asset; tests:
+   * read from src/fonts). Required only when a text box uses one.
+   */
+  loadFontBytes?: (key: HandwritingFontKey) => Promise<Uint8Array>;
 };
 
 export async function exportPdf(input: ExportInput): Promise<Uint8Array> {
@@ -73,8 +81,7 @@ export async function exportPdf(input: ExportInput): Promise<Uint8Array> {
       }
     }
     const importedDocs = new Map<string, PDFDoc>();
-    for (const [id, bytes] of input.importedBytes ??
-      new Map<string, Uint8Array>()) {
+    for (const [id, bytes] of input.importedBytes ?? new Map<string, Uint8Array>()) {
       importedDocs.set(id, await PDFDocument.load(bytes));
     }
     target = await buildFinalDocument(original, doc.pages, importedDocs);
@@ -82,11 +89,30 @@ export async function exportPdf(input: ExportInput): Promise<Uint8Array> {
 
   const pages = target.getPages();
 
-  const fontCache = new Map<StandardFontKey, PDFFont>();
-  const getFont = async (key: StandardFontKey): Promise<PDFFont> => {
+  const fontCache = new Map<FontKey, PDFFont>();
+  let fontkitReady = false;
+  const getFont = async (key: FontKey): Promise<PDFFont> => {
     const cached = fontCache.get(key);
     if (cached) return cached;
-    const font = await target.embedFont(FONT_MAP[key]);
+    let font: PDFFont;
+    if (isHandwritingFont(key)) {
+      const loader = input.loadFontBytes;
+      if (!loader) {
+        throw new Error(`exportPdf: handwriting font "${key}" needs loadFontBytes`);
+      }
+      const bytes = await loader(key);
+      if (!fontkitReady) {
+        // Custom fonts need fontkit (pdf-lib README, "Embed Font"). Loaded
+        // lazily: it weighs ~340 KB and most exports use standard fonts only.
+        const { default: fontkit } = await import("@pdf-lib/fontkit");
+        target.registerFontkit(fontkit);
+        fontkitReady = true;
+      }
+      // customName makes the BaseFont deterministic (subset prefix + key).
+      font = await target.embedFont(bytes, { subset: true, customName: key });
+    } else {
+      font = await target.embedFont(FONT_MAP[key]);
+    }
     fontCache.set(key, font);
     return font;
   };
@@ -96,9 +122,7 @@ export async function exportPdf(input: ExportInput): Promise<Uint8Array> {
     const cached = imageCache.get(a.id);
     if (cached) return cached;
     const img =
-      a.mime === "image/png"
-        ? await target.embedPng(a.bytes)
-        : await target.embedJpg(a.bytes);
+      a.mime === "image/png" ? await target.embedPng(a.bytes) : await target.embedJpg(a.bytes);
     imageCache.set(a.id, img);
     return img;
   };
@@ -126,7 +150,7 @@ async function bakeAnnotation(
   page: import("@cantoo/pdf-lib").PDFPage,
   a: Annotation,
   geom: PageGeometry,
-  getFont: (key: StandardFontKey) => Promise<PDFFont>,
+  getFont: (key: FontKey) => Promise<PDFFont>,
   getImage: (a: ImageAnnot) => Promise<PDFImage>,
   pages: import("@cantoo/pdf-lib").PDFPage[],
 ): Promise<void> {
@@ -159,8 +183,7 @@ async function bakeAnnotation(
       break;
     case "link": {
       const rect = rectOverlayToPdf(a, geom);
-      const destRef =
-        a.target.kind === "page" ? pages[a.target.value]?.ref : undefined;
+      const destRef = a.target.kind === "page" ? pages[a.target.value]?.ref : undefined;
       attachLink(page, rect, a.target, destRef);
       break;
     }

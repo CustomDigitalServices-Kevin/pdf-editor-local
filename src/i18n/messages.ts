@@ -59,6 +59,12 @@ export const MESSAGES = {
     elements: "Éléments",
     noElements: "Aucun élément ajouté. Choisissez un outil et cliquez sur la page.",
     editText: "Double-cliquez pour éditer le texte",
+    handwriting: "Texte manuscrit",
+    handwritingFont: "Style d'écriture",
+    fontStandard: "Police standard",
+    fontHandwritingGroup: "Manuscrites",
+    background: "Fond blanc",
+    replaceDotsHint: "Remplacer les pointillés",
   },
   en: {
     appTitle: "Local PDF editor",
@@ -115,6 +121,12 @@ export const MESSAGES = {
     elements: "Elements",
     noElements: "No element yet. Pick a tool and click on the page.",
     editText: "Double-click to edit the text",
+    handwriting: "Handwritten text",
+    handwritingFont: "Handwriting style",
+    fontStandard: "Standard font",
+    fontHandwritingGroup: "Handwriting",
+    background: "White background",
+    replaceDotsHint: "Replace the dotted line",
   },
 } as const;
 

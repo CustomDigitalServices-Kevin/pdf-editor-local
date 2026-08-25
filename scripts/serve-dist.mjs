@@ -30,6 +30,7 @@ const MIME = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
 };
 
 async function resolveFile(urlPath) {

@@ -437,6 +437,11 @@ input[type="range"] {
 .ghost.round {
   border-radius: 50%;
 }
+/* snapped onto a dotted "write here" zone: solid frame, opaque preview */
+.ghost.snap {
+  border-style: solid;
+  background: rgba(255, 255, 255, 0.85);
+}
 .ghost img {
   width: 100%;
   height: 100%;
@@ -601,6 +606,35 @@ input[type="range"] {
 .el-fields-inner {
   display: flex;
   flex-direction: column;
+}
+
+/* handwriting font gallery: each swatch renders its own face */
+.font-gallery {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.font-swatch {
+  font-size: 17px;
+  line-height: 1.2;
+  padding: 6px 8px;
+  text-align: left;
+  color: var(--color-text);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.font-swatch:hover {
+  border-color: var(--color-border-strong);
+}
+.font-swatch.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
 }
 .el-empty-hint {
   color: var(--color-text-dim);

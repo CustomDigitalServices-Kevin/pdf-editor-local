@@ -20,8 +20,15 @@ import {
   translateAnnotation,
 } from "../state/geometry";
 import { useLocale } from "../i18n/LocaleProvider";
+import { fontCss, isHandwritingFont } from "../core/fonts";
+import { ensureHandwritingFace } from "./font-loader";
+import { probePageText, makeMeasurer, sampleColorAt } from "../engines/pdf/text-probe";
+import { dotRunAt, nearestStyleSource, styleFromItem } from "../state/text-probe";
+import type { ProbeItem, Measure } from "../state/text-probe";
+import type { TextOverrides } from "../state/defaults";
 
 const ACCENT = "#f0883e";
+const WHITE = { r: 1, g: 1, b: 1 };
 
 export type PendingImage = {
   type: "image" | "signature";
@@ -66,8 +73,19 @@ export function PageView(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const ghostRef = useRef<HTMLDivElement | null>(null);
+  const hintRef = useRef<HTMLSpanElement | null>(null);
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [drag, setDrag] = useState<Drag | null>(null);
+  // The page's own text runs (view points), for dotted-zone snapping and
+  // style detection. Filled after each render (pdf.js resolves fonts then).
+  const [probe, setProbe] = useState<ProbeItem[]>([]);
+  // Exposed as data-probe on the overlay so tests can wait for the text scan.
+  const [probeReady, setProbeReady] = useState(false);
+  const measurerRef = useRef<((item: ProbeItem) => Measure | null) | null>(null);
+  const measurerFor = (item: ProbeItem): Measure | null => {
+    measurerRef.current ??= makeMeasurer();
+    return measurerRef.current(item);
+  };
 
   // What a click will drop, or null for select/stroke tools.
   const placement = useMemo<Placement | null>(() => {
@@ -104,8 +122,12 @@ export function PageView(props: Props) {
   // Render the page (or a white blank) whenever inputs change.
   useEffect(() => {
     let cancelled = false;
+    // Read through a function: the flag flips during the awaits below and a
+    // narrowed `cancelled` would be stale.
+    const alive = () => !cancelled;
     const canvas = canvasRef.current;
     if (!canvas) return;
+    setProbeReady(false);
     const src = entry.source;
     if (src.kind === "blank") {
       const w = Math.floor(src.width * scale);
@@ -118,13 +140,23 @@ export function PageView(props: Props) {
         ctx.fillRect(0, 0, w, h);
       }
       setSize({ w, h });
+      setProbe([]);
+      setProbeReady(true);
       return;
     }
     const doc = src.kind === "imported" ? importedDoc : pdfDoc;
     if (doc) {
       renderPage(doc, src.index + 1, canvas, scale, entry.rotation)
-        .then((s) => {
-          if (!cancelled) setSize({ w: s.widthPx, h: s.heightPx });
+        .then(async (s) => {
+          if (!alive()) return;
+          setSize({ w: s.widthPx, h: s.heightPx });
+          // Fonts are registered by the render above, so measuring is exact.
+          measurerRef.current = null;
+          const items = await probePageText(doc, src.index + 1, entry.rotation);
+          if (alive()) {
+            setProbe(items);
+            setProbeReady(true);
+          }
         })
         .catch(() => {
           /* render failure leaves the previous frame */
@@ -134,6 +166,59 @@ export function PageView(props: Props) {
       cancelled = true;
     };
   }, [pdfDoc, importedDoc, entry.source, entry.rotation, scale]);
+
+  /**
+   * Smart text placement: on a dotted "write here" zone the box replaces the
+   * dots (exact rect, white fill); elsewhere it copies the neighbouring text's
+   * font, size and colour. A chosen handwriting font is kept either way.
+   */
+  const smartText = (vx: number, vy: number): { x: number; y: number; o: TextOverrides } => {
+    const canvas = canvasRef.current;
+    const hit = dotRunAt(probe, vx, vy, measurerFor);
+    const anchor = hit ? { x: hit.rect.x, y: hit.rect.y + hit.rect.h / 2 } : { x: vx, y: vy };
+    const source = nearestStyleSource(probe, anchor.x, anchor.y) ?? hit?.item ?? null;
+    const o: TextOverrides = {};
+    if (source) {
+      const detected = styleFromItem(source);
+      if (!isHandwritingFont(style.fontFamily)) o.fontFamily = detected.fontFamily;
+      o.fontSize = detected.fontSize;
+      const color = canvas ? sampleColorAt(canvas, source.rect, scale) : null;
+      if (color) o.color = color;
+    }
+    const fontSize = o.fontSize ?? style.fontSize;
+    if (hit) {
+      const h = Math.max(hit.rect.h, fontSize * 1.25);
+      o.w = Math.max(hit.rect.w, 24);
+      o.h = h;
+      o.text = "";
+      o.background = WHITE;
+      return { x: hit.rect.x, y: hit.rect.y - (h - hit.rect.h), o };
+    }
+    o.h = fontSize * 1.6;
+    return { x: vx - 220 / 2, y: vy - o.h / 2, o };
+  };
+
+  /** Move the ghost onto a dotted zone (or back to its default footprint). */
+  const snapGhost = (vx: number, vy: number): void => {
+    const el = ghostRef.current;
+    if (!el || !placement) return;
+    const hit = tool === "text" ? dotRunAt(probe, vx, vy, measurerFor) : null;
+    if (hit) {
+      el.classList.add("snap");
+      el.style.width = `${hit.rect.w * scale}px`;
+      el.style.height = `${hit.rect.h * scale}px`;
+      el.style.transform = `translate3d(${hit.rect.x * scale}px, ${hit.rect.y * scale}px, 0)`;
+      if (hintRef.current) hintRef.current.textContent = t("replaceDotsHint");
+      return;
+    }
+    el.classList.remove("snap");
+    el.style.width = `${placement.w * scale}px`;
+    el.style.height = `${placement.h * scale}px`;
+    const gx = (vx - placement.w / 2) * scale;
+    const gy = (vy - placement.h / 2) * scale;
+    el.style.transform = `translate3d(${gx}px, ${gy}px, 0)`;
+    if (hintRef.current) hintRef.current.textContent = t("placeHint");
+  };
 
   const toView = (clientX: number, clientY: number): { vx: number; vy: number } => {
     const rect = overlayRef.current?.getBoundingClientRect();
@@ -153,7 +238,8 @@ export function PageView(props: Props) {
       const x = vx - placement.w / 2;
       const y = vy - placement.h / 2;
       if (tool === "text") {
-        props.onCreate(createTextAnnotation(pageIndex, x, y, style));
+        const smart = smartText(vx, vy);
+        props.onCreate(createTextAnnotation(pageIndex, smart.x, smart.y, style, smart.o));
       } else if ((tool === "image" || tool === "signature") && placement.img) {
         props.onCreate(
           createImageAnnotation(
@@ -206,9 +292,7 @@ export function PageView(props: Props) {
       const el = ghostRef.current;
       if (el) {
         el.style.display = "block";
-        const gx = (vx - placement.w / 2) * scale;
-        const gy = (vy - placement.h / 2) * scale;
-        el.style.transform = `translate3d(${gx}px, ${gy}px, 0)`;
+        snapGhost(vx, vy);
       }
     }
   };
@@ -257,6 +341,7 @@ export function PageView(props: Props) {
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerLeave}
         data-testid={`overlay-${pageIndex}`}
+        data-probe={probeReady ? "ready" : "pending"}
       >
         <svg className="vector-layer" width={size.w} height={size.h}>
           {annotations.map((a) =>
@@ -319,7 +404,9 @@ export function PageView(props: Props) {
             style={{ width: placement.w * scale, height: placement.h * scale }}
           >
             {ghostUrl && <img src={ghostUrl} alt="" />}
-            <span className="ghost-hint">{t("placeHint")}</span>
+            <span ref={hintRef} className="ghost-hint">
+              {t("placeHint")}
+            </span>
           </div>
         )}
       </div>
@@ -406,6 +493,16 @@ function BoxAnnot(props: {
   onCommitText: (text: string) => void;
 }) {
   const { a, rect, scale, selected } = props;
+  // A handwriting font is registered on first use; the browser re-lays out
+  // the text once the FontFace joins document.fonts.
+  const fontKey = a.type === "text" ? a.fontFamily : null;
+  useEffect(() => {
+    if (fontKey && isHandwritingFont(fontKey)) {
+      ensureHandwritingFace(fontKey).catch(() => {
+        /* the generic cursive fallback stays on screen; export reports it */
+      });
+    }
+  }, [fontKey]);
   const style: React.CSSProperties = {
     position: "absolute",
     left: rect.x * scale,
@@ -443,11 +540,11 @@ function BoxAnnot(props: {
     style.background = "rgba(240,136,62,0.08)";
   } else if (a.type === "text") {
     style.color = rgbCss(a.color);
-    style.fontFamily = a.fontFamily.startsWith("Times")
-      ? "serif"
-      : a.fontFamily.startsWith("Courier")
-        ? "monospace"
-        : "sans-serif";
+    const font = fontCss(a.fontFamily);
+    style.fontFamily = font.fontFamily;
+    style.fontWeight = font.fontWeight;
+    style.fontStyle = font.fontStyle;
+    if (a.background) style.background = rgbCss(a.background);
     style.fontSize = a.fontSize * scale;
     style.lineHeight = 1.15;
     style.textAlign = a.align;
