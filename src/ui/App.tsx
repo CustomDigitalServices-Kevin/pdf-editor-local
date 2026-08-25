@@ -5,7 +5,8 @@ import type { PdfDoc } from "../engines/pdf/render";
 import type { Annotation, PageEntry, PageRotation } from "../core/types";
 import { exportPdf } from "../core/export";
 import { DEFAULT_STYLE } from "../state/defaults";
-import type { ToolId } from "../state/defaults";
+import type { Style, ToolId } from "../state/defaults";
+import { loadHandwritingFontBytes } from "./font-loader";
 import { Toolbar } from "./Toolbar";
 import { PageView } from "./PageView";
 import type { PendingImage } from "./PageView";
@@ -70,6 +71,9 @@ export function App() {
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
   const [signOpen, setSignOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Session preference for new text boxes: the font last chosen in the
+  // properties (a handwriting choice sticks for the next boxes).
+  const [textStyle, setTextStyle] = useState<Style>(DEFAULT_STYLE);
 
   // Imported PDFs: pdfjs proxy for on-screen render, raw bytes for export.
   const importedDocs = useRef(new Map<string, PdfDoc>());
@@ -135,10 +139,22 @@ export function App() {
 
   const onUpdate = (id: string, next: Annotation) => {
     setAnnotations((prev) => prev.map((a) => (a.id === id ? next : a)));
+    if (next.type === "text") {
+      setTextStyle((s) =>
+        s.fontFamily === next.fontFamily ? s : { ...s, fontFamily: next.fontFamily },
+      );
+    }
   };
 
+  // An empty box (nothing typed, or everything erased) is dropped rather than
+  // left invisible on the page.
   const commitText = (id: string, text: string) => {
     setEditingId(null);
+    if (text.trim() === "") {
+      setAnnotations((prev) => prev.filter((a) => a.id !== id));
+      setSelectedId((sel) => (sel === id ? null : sel));
+      return;
+    }
     setAnnotations((prev) =>
       prev.map((a) => (a.id === id && a.type === "text" ? { ...a, text } : a)),
     );
@@ -156,14 +172,21 @@ export function App() {
     setSelectedId(null);
   }, [selectedId]);
 
+  // Delete (Suppr) removes the selected element. Backspace never does: it is
+  // an editing key, and the inline text editor is a contentEditable div that
+  // the old INPUT/TEXTAREA guard did not cover (Kevin 2026-08-25: a typo fix
+  // deleted the whole text box).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
-        const tag = document.activeElement?.tagName;
+      if (e.key !== "Delete" || !selectedId) return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) {
+        const tag = active.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-        e.preventDefault();
-        onDeleteSelected();
+        if (active.isContentEditable) return;
       }
+      e.preventDefault();
+      onDeleteSelected();
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -274,6 +297,7 @@ export function App() {
         originalBytes: pdfBytes,
         doc: { annotations, pages, form: {} },
         importedBytes: importedBytes.current,
+        loadFontBytes: loadHandwritingFontBytes,
       });
       download(bytes, "edited.pdf");
     } finally {
@@ -416,7 +440,7 @@ export function App() {
                 selectedId={selectedId}
                 editingId={editingId}
                 tool={tool}
-                style={DEFAULT_STYLE}
+                style={textStyle}
                 pendingImage={pendingImage}
                 onCreate={onCreate}
                 onUpdate={onUpdate}
