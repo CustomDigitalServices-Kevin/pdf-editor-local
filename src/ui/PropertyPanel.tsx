@@ -1,5 +1,21 @@
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { Annotation, LinkTarget, Rgb, StandardFontKey, TextAlign } from "../core/types";
+import type {
+  Annotation,
+  HandwritingFontKey,
+  LinkTarget,
+  Rgb,
+  StandardFontKey,
+  TextAlign,
+} from "../core/types";
+import {
+  DEFAULT_HANDWRITING_FONT,
+  HANDWRITING_FONTS,
+  STANDARD_FONTS,
+  fontCss,
+  isHandwritingFont,
+} from "../core/fonts";
+import { ensureHandwritingFace } from "./font-loader";
 import { useLocale } from "../i18n/LocaleProvider";
 
 function rgbToHex(c: Rgb): string {
@@ -20,16 +36,53 @@ function hexToRgb(hex: string): Rgb {
   };
 }
 
-const FONTS: StandardFontKey[] = [
-  "Helvetica",
-  "Helvetica-Bold",
-  "Helvetica-Oblique",
-  "Times-Roman",
-  "Times-Bold",
-  "Times-Italic",
-  "Courier",
-  "Courier-Bold",
-];
+const WHITE: Rgb = { r: 1, g: 1, b: 1 };
+
+// Gallery of the bundled handwriting fonts, each name set in its own face.
+// The faces are registered when the gallery opens (never on first load).
+function FontGallery({
+  value,
+  onPick,
+}: {
+  value: HandwritingFontKey;
+  onPick: (key: HandwritingFontKey) => void;
+}) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.allSettled(HANDWRITING_FONTS.map((f) => ensureHandwritingFace(f.key))).then(() => {
+      if (!cancelled) setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <div
+      className={`font-gallery${ready ? " ready" : ""}`}
+      role="listbox"
+      data-testid="font-gallery"
+    >
+      {HANDWRITING_FONTS.map((f) => (
+        <button
+          key={f.key}
+          type="button"
+          role="option"
+          aria-selected={f.key === value}
+          className={`font-swatch${f.key === value ? " active" : ""}`}
+          style={{ fontFamily: fontCss(f.key).fontFamily }}
+          title={`${f.label} (${f.license})`}
+          onClick={() => {
+            onPick(f.key);
+          }}
+          data-testid={`font-${f.key}`}
+        >
+          {f.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 type FieldsProps = {
   annotation: Annotation;
@@ -147,23 +200,46 @@ export function AnnotationFields({ annotation: a, pageCount, onChange }: FieldsP
               data-testid="text-input"
             />
           </Row>
-          <Row label={t("font")}>
-            <select
-              value={a.fontFamily}
+          <Row label={t("handwriting")}>
+            <input
+              type="checkbox"
+              checked={isHandwritingFont(a.fontFamily)}
               onChange={(e) => {
                 onChange({
                   ...a,
-                  fontFamily: e.target.value as StandardFontKey,
+                  fontFamily: e.target.checked ? DEFAULT_HANDWRITING_FONT : "Helvetica",
                 });
               }}
-            >
-              {FONTS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
+              data-testid="handwriting-toggle"
+            />
           </Row>
+          {isHandwritingFont(a.fontFamily) ? (
+            <FontGallery
+              value={a.fontFamily}
+              onPick={(key) => {
+                onChange({ ...a, fontFamily: key });
+              }}
+            />
+          ) : (
+            <Row label={t("font")}>
+              <select
+                value={a.fontFamily}
+                onChange={(e) => {
+                  onChange({
+                    ...a,
+                    fontFamily: e.target.value as StandardFontKey,
+                  });
+                }}
+                data-testid="font-select"
+              >
+                {STANDARD_FONTS.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          )}
           <Row label={t("fontSize")}>
             <input
               type="number"
@@ -173,6 +249,17 @@ export function AnnotationFields({ annotation: a, pageCount, onChange }: FieldsP
               onChange={(e) => {
                 onChange({ ...a, fontSize: Number(e.target.value) });
               }}
+              data-testid="font-size"
+            />
+          </Row>
+          <Row label={t("background")}>
+            <input
+              type="checkbox"
+              checked={a.background !== null}
+              onChange={(e) => {
+                onChange({ ...a, background: e.target.checked ? WHITE : null });
+              }}
+              data-testid="text-background"
             />
           </Row>
           <Row label={t("align")}>
