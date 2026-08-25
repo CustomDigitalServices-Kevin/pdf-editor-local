@@ -7,11 +7,7 @@
 
 import { rgb, degrees } from "@cantoo/pdf-lib";
 import type { PDFPage, PDFFont, PDFImage } from "@cantoo/pdf-lib";
-import {
-  pointOverlayToPdf,
-  rectOverlayToPdf,
-  lengthOverlayToPdf,
-} from "../coords";
+import { pointOverlayToPdf, rectOverlayToPdf, lengthOverlayToPdf } from "../coords";
 import type {
   PageGeometry,
   Rgb,
@@ -27,11 +23,7 @@ import type {
 const color = (c: Rgb) => rgb(c.r, c.g, c.b);
 const HIGHLIGHT_OPACITY = 0.4;
 
-export function bakeShape(
-  page: PDFPage,
-  a: ShapeAnnot,
-  geom: PageGeometry,
-): void {
+export function bakeShape(page: PDFPage, a: ShapeAnnot, geom: PageGeometry): void {
   const r = rectOverlayToPdf(a, geom);
   // Assemble only the defined options: exactOptionalPropertyTypes forbids
   // passing an explicit `undefined` for an optional Color property.
@@ -74,11 +66,7 @@ function drawSegment(
   page.drawLine({ start: p1, end: p2, thickness, color: color(stroke) });
 }
 
-export function bakeLine(
-  page: PDFPage,
-  a: LineAnnot,
-  geom: PageGeometry,
-): void {
+export function bakeLine(page: PDFPage, a: LineAnnot, geom: PageGeometry): void {
   const p1 = pointOverlayToPdf(a.x1, a.y1, geom);
   const p2 = pointOverlayToPdf(a.x2, a.y2, geom);
   const thickness = lengthOverlayToPdf(a.strokeWidth, geom);
@@ -113,11 +101,7 @@ export function bakeInk(page: PDFPage, a: InkAnnot, geom: PageGeometry): void {
   }
 }
 
-export function bakeMarkup(
-  page: PDFPage,
-  a: MarkupAnnot,
-  geom: PageGeometry,
-): void {
+export function bakeMarkup(page: PDFPage, a: MarkupAnnot, geom: PageGeometry): void {
   const r = rectOverlayToPdf(a, geom);
   if (a.type === "highlight") {
     page.drawRectangle({
@@ -140,11 +124,7 @@ export function bakeMarkup(
   });
 }
 
-export function bakeWhiteout(
-  page: PDFPage,
-  a: WhiteoutAnnot,
-  geom: PageGeometry,
-): void {
+export function bakeWhiteout(page: PDFPage, a: WhiteoutAnnot, geom: PageGeometry): void {
   const r = rectOverlayToPdf(a, geom);
   page.drawRectangle({
     x: r.x,
@@ -156,12 +136,7 @@ export function bakeWhiteout(
   });
 }
 
-export function bakeImage(
-  page: PDFPage,
-  a: ImageAnnot,
-  geom: PageGeometry,
-  image: PDFImage,
-): void {
+export function bakeImage(page: PDFPage, a: ImageAnnot, geom: PageGeometry, image: PDFImage): void {
   const r = rectOverlayToPdf(a, geom);
   page.drawImage(image, {
     x: r.x,
@@ -172,13 +147,19 @@ export function bakeImage(
   });
 }
 
-export function bakeText(
-  page: PDFPage,
-  a: TextAnnot,
-  geom: PageGeometry,
-  font: PDFFont,
-): void {
+export function bakeText(page: PDFPage, a: TextAnnot, geom: PageGeometry, font: PDFFont): void {
   const r = rectOverlayToPdf(a, geom);
+  if (a.background) {
+    // Opaque fill under the text (hides a dotted "write here" zone).
+    page.drawRectangle({
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+      color: color(a.background),
+      opacity: 1,
+    });
+  }
   const size = lengthOverlayToPdf(a.fontSize, geom);
   const ascent = font.heightAtSize(size, { descender: false });
   const lineHeight = font.heightAtSize(size);
