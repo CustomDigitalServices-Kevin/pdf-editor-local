@@ -9,3 +9,6 @@ test-results/
 e2e/.fixtures/
 .claude/worktrees/
 .claude/settings.local.json
+
+# task-master planning artifacts (local)
+.taskmaster/
