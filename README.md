@@ -6,7 +6,7 @@ Free tool by [Custom Digital Services](https://custom-digital-services.com). Rep
 
 ## Features
 
-- **Text** — add text boxes (standard PDF fonts, size, colour, alignment)
+- **Text** — add text boxes (standard PDF fonts, size, colour, alignment). Type into the dotted "write here" lines of a form and the box snaps onto them, hides the dots and copies the neighbouring text's font, size and colour. An optional handwriting mode offers ten bundled cursive fonts, embedded (subset) in the exported PDF.
 - **Shapes** — rectangle, ellipse, line, arrow
 - **Images** — import PNG/JPEG, resize
 - **Markup** — highlight, underline, strikethrough
@@ -26,12 +26,16 @@ Bilingual UI (FR/EN), offline PWA, strict Content-Security-Policy (`connect-src 
 - Secure redaction — whiteout hides visually but does not remove the underlying text (same behaviour as Sejda; stated in the UI)
 - OCR of scanned documents
 - Text orientation on a rotated page follows the page (correct on non-rotated pages, which is the common case)
+- Snapping onto dotted lines drawn as vectors (only dot/underscore _characters_ are detected)
+- Variable handwriting fonts (fontkit cannot subset `fvar` tables): the bundled ten are static TTF
 
 ## Stack
 
 - Vite 7 + React 19 + TypeScript (strict)
 - [`pdfjs-dist`](https://github.com/mozilla/pdf.js) for rendering
 - [`@cantoo/pdf-lib`](https://github.com/cantoo-scribe/pdf-lib) for export/baking (maintained fork of pdf-lib)
+- [`@pdf-lib/fontkit`](https://github.com/Hopding/fontkit) for embedding the handwriting fonts (loaded lazily)
+- Ten handwriting fonts from [Google Fonts](https://github.com/google/fonts) (OFL 1.1 / Apache 2.0, see [`src/fonts/LICENSES.md`](src/fonts/LICENSES.md))
 - Vitest (unit) + Playwright (end-to-end)
 
 ## Architecture
