@@ -63,3 +63,8 @@ npm run test:e2e     # Playwright end-to-end (needs a build)
 ## License
 
 MIT
+
+## About
+
+Built and maintained by [Kevin Tomas](https://www.custom-digital-services.com/?utm_source=github&utm_medium=readme&utm_campaign=pdf-editor-local), freelance Power Platform and Microsoft AI consultant (Custom Digital Services).
+Try it online: [www.custom-digital-services.com/outils/pdf-editor](https://www.custom-digital-services.com/outils/pdf-editor/?utm_source=github&utm_medium=readme&utm_campaign=pdf-editor-local). More free tools: [www.custom-digital-services.com/outils](https://www.custom-digital-services.com/outils/?utm_source=github&utm_medium=readme&utm_campaign=pdf-editor-local)
